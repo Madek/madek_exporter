@@ -1,0 +1,17 @@
+*.class
+*.jar
+*.log
+*.min.css
+/.env
+/.lein-*
+/.nrepl-port
+/.repl
+/checkouts
+/classes
+/log
+/out
+/resources/public/js
+/target
+pom.xml
+pom.xml.asc
+profiles.clj
