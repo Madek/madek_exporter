@@ -216,6 +216,13 @@
    " \"" [:em (:title @download-entity)] "\" "])
 
 
+(defn toggle-recursive-download-parameter [_]
+  (http-request
+    {:method :patch
+     :url "/download-parameters"
+     :json-params {:recursive (-> @download-parameters :recursive not)}})
+  )
+
 (defn render-download-form []
   [:section.start-download
    [:h2 "Export " (download-entity-name)]
@@ -225,6 +232,15 @@
                           :readonly :readonly
                           :disabled true
                           :value (:uuid @download-entity)}]]
+   (when (= "Collection" (:type @download-entity))
+     [:div.checkbox
+      [:label
+       [:input#recursive
+        {:type "checkbox"
+         :checked (-> @download-parameters :recursive not not)
+         :on-click toggle-recursive-download-parameter
+         }]
+       "Recursive"]])
    [:div.form-group
     [:label {:for "target-dir"} "Target Directory"]
     [:input.form-control {:type "text"
@@ -232,6 +248,7 @@
                           :disabled true
                           :value (-> @download-parameters
                                      :target-dir str)}]]
+
    [:div.clearfix
     [:button.btn.btn-warning.pull-left
      {:on-click #(http-request

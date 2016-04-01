@@ -115,7 +115,7 @@
                        e))
    :throwable Throwable})
 
-(defn start-download-future [id target-dir entry-point http-options]
+(defn start-download-future [id target-dir recursive? entry-point http-options]
   (reset! download-future
           (future
             (catcher/snatch
@@ -128,7 +128,7 @@
                                                    :errors {:dowload-error (str e)}}}))
                                    e))
                :throwable Throwable}
-              (export/download-set id target-dir entry-point http-options)
+              (export/download-set id target-dir recursive? entry-point http-options)
               (swap! state/db (fn [db] (assoc-in db [:download :state] :finished))))
             )))
 
@@ -148,12 +148,14 @@
       (swap! state/db (fn [db] (assoc-in db [:download :state] :downloading)))
       (let [id (-> @state/db :download :entity :uuid)
             target-dir (-> @state/db :download-parameters :target-dir)
+            recursive? (-> @state/db :download-parameters :recursive not not)
             entry-point (str (-> @state/db :connection :madek-url) "/api")
             http-options (utils/options-to-http-options
                            (-> @state/db :connection
                                (select-keys [:session-token :login :password])))]
-        (start-download-future id target-dir entry-point http-options))
+        (start-download-future id target-dir recursive? entry-point http-options))
       {:status 202})))
+
 
 (defn patch-download-item [request]
   (logging/debug 'patch-download-item {:request request})
@@ -171,6 +173,17 @@
 (defn delete-download [_]
   (swap! state/db (fn [db]
                     (dissoc db :download :download-entity)))
+  {:status 204})
+
+;##############################################################################
+
+(defn patch-download-parameters [request]
+  (logging/debug 'patch-download-parameters {:request request})
+  (swap! state/db
+         (fn [db params]
+           (deep-merge db
+                       {:download-parameters params}))
+         (:body request))
   {:status 204})
 
 ;##############################################################################
@@ -204,6 +217,9 @@
   (POST "/connect" _ #'connection/connect-to-madek-server)
   (POST "/open" _ #'open)
   (PATCH "/download/items/:id" _ #'patch-download-item)
+
+  (PATCH "/download-parameters" _ #'patch-download-parameters)
+
 
   (POST "/download" _ #'download)
 

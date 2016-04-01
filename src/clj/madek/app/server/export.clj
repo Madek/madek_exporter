@@ -93,15 +93,44 @@
 
 ;### DL Set ###################################################################
 
-(defn download-set [id dl-path api-entry-point api-http-opts]
+(declare download-set)
+
+(defn download-media-entries-for-set [id target-dir-path
+                                      api-entry-point api-http-opts]
+  (let [me-get-opts (merge {:collection_id id}
+                           (if (or (:basic-auth api-http-opts)
+                                   (-> api-http-opts :cookies (get "madek-session")))
+                             {:me_get_full_size "true"}
+                             {:public_get_full_size "true"}))]
+    (doseq [me-rel (I> identity-with-logging
+                   (roa/get-root api-entry-point
+                                 :default-conn-opts api-http-opts)
+                   (roa/relation :media-entries)
+                   (roa/get me-get-opts)
+                   roa/coll-seq)]
+      (download-media-entry target-dir-path me-rel))))
+
+(defn download-collections-for-collection [collection target-dir-path recursive?
+                                           api-entry-point api-http-opts]
+  (let [coll-get-opts (if (or (:basic-auth api-http-opts)
+                              (-> api-http-opts :cookies (get "madek-session")))
+                        {:me_get_full_size "true"}
+                        {:public_get_full_size "true"})]
+    (doseq [collection  (I>> identity-with-logging
+                             (I> identity-with-logging
+                                 collection
+                                 (roa/relation :collections)
+                                 (roa/get {}) ;TODO set coll-get-opts
+                                 roa/coll-seq)
+                             (map #(roa/get % {})))]
+      (download-set
+        (-> collection roa/data :id)
+        target-dir-path recursive? api-entry-point api-http-opts))))
+
+(defn download-set [id dl-path recursive? api-entry-point api-http-opts]
   (swap! state/db (fn [db id] (deep-merge db {:download {:items {id {}}}})) id)
   (catcher/with-logging {}
-    (let [me-get-opts (merge {:collection_id id}
-                             (if (or (:basic-auth api-http-opts)
-                                     (-> api-http-opts :cookies (get "madek-session")))
-                               {:me_get_full_size "true"}
-                               {:public_get_full_size "true"}))
-          collection (-> (roa/get-root api-entry-point
+    (let [collection (-> (roa/get-root api-entry-point
                                        :default-conn-opts api-http-opts)
                          (roa/relation :collection )
                          (roa/get {:id id}))
@@ -118,11 +147,19 @@
                        :download_started-at (str (time/now))))
       (io/make-parents target-dir-path)
       (write-meta-data target-dir-path meta-data id)
-      (doseq [me (I> identity-with-logging
-                     (roa/get-root api-entry-point
-                                   :default-conn-opts api-http-opts)
-                     (roa/relation :media-entries)
-                     (roa/get me-get-opts)
-                     roa/coll-seq)]
-        (download-media-entry target-dir-path me))
+      (download-media-entries-for-set
+        id target-dir-path api-entry-point api-http-opts)
+      (when recursive?
+        (download-collections-for-collection
+          collection target-dir-path recursive?
+          api-entry-point api-http-opts))
       (set-item-to-finished id))))
+
+
+;### Debug ####################################################################
+;(logging-config/set-logger! :level :debug)
+;(logging-config/set-logger! :level :info)
+;(debug/debug-ns 'ring.middleware.resource)
+;(debug/debug-ns *ns*)
+;(debug/debug-ns 'json-roa.client.core)
+;(debug/debug-ns 'uritemplate-clj.core)
