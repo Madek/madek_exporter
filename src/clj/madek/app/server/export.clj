@@ -15,15 +15,30 @@
 
     [clj-logging-config.log4j :as logging-config]
     [clojure.tools.logging :as logging]
-    [logbug.catcher :as catcher]
+    [logbug.catcher :as catcher :refer [snatch]]
     [logbug.thrown :as thrown]
     [logbug.debug :as debug :refer [identity-with-logging I> I>>]]
     )
 
     (:import
-    [java.io File])
+    [java.io File]
+    [java.nio.file Files Paths]
+    )
   )
 
+
+;### Path Helper ##############################################################
+
+(defn nio-path [s] (Paths/get s (into-array [""])))
+
+(defn symlink [source target]
+  (snatch
+    {:level :debug
+     :throwable java.nio.file.FileAlreadyExistsException}
+    (Files/createSymbolicLink
+      (nio-path source)
+      (nio-path target)
+      (make-array java.nio.file.attribute.FileAttribute 0))))
 
 ;### title and prefix #########################################################
 
@@ -47,9 +62,6 @@
           "")]
     (str prefix (-> media-resource roa/data :id))))
 
-(defn symlink [& more]
-  (logging/warn "SYMLINK TODO")
-  )
 
 ;### DL Media-Entry ###########################################################
 
@@ -72,7 +84,8 @@
           entry-dir-path (str dir-path File/separator entry-prefix-path)
           meta-data (get-metadata media-entry)]
       (if (-> @state/db :download :items (get id))
-        (symlink)
+        (let [target  (-> @state/db :download :items (get id) :path)]
+          (symlink entry-dir-path target))
         (do (swap! state/db (fn [db uuid media-entry]
                               (assoc-in db [:download :items (str id)] media-entry))
                    id (assoc (roa/data media-entry)
@@ -133,17 +146,18 @@
         target-dir-path recursive? api-entry-point api-http-opts))))
 
 (defn download-set [id dl-path recursive? api-entry-point api-http-opts]
-  (if (-> @state/db :download :items (get id))
-    (symlink)
-    (catcher/with-logging {}
-      (swap! state/db (fn [db id] (deep-merge db {:download {:items {id {}}}})) id)
-      (let [collection (-> (roa/get-root api-entry-point
-                                         :default-conn-opts api-http-opts)
-                           (roa/relation :collection )
-                           (roa/get {:id id}))
-            path-prefix (path-prefix collection)
-            target-dir-path (str dl-path File/separator path-prefix)
-            meta-data (get-metadata collection)]
+  (let [collection (-> (roa/get-root api-entry-point
+                                     :default-conn-opts api-http-opts)
+                       (roa/relation :collection )
+                       (roa/get {:id id}))
+        path-prefix (path-prefix collection)
+        target-dir-path (str dl-path File/separator path-prefix)
+        meta-data (get-metadata collection)]
+    (if (-> @state/db :download :items (get id))
+      (let [target  (-> @state/db :download :items (get id) :path)]
+        (symlink target-dir-path target))
+      (catcher/with-logging {}
+        (swap! state/db (fn [db id] (deep-merge db {:download {:items {id {}}}})) id)
         (swap! state/db (fn [db uuid collection]
                           (assoc-in db [:download :items (str id)] collection))
                id (assoc (roa/data collection)
