@@ -47,6 +47,9 @@
           "")]
     (str prefix (-> media-resource roa/data :id))))
 
+(defn symlink [& more]
+  (logging/warn "SYMLINK TODO")
+  )
 
 ;### DL Media-Entry ###########################################################
 
@@ -68,18 +71,20 @@
           entry-prefix-path (path-prefix media-entry)
           entry-dir-path (str dir-path File/separator entry-prefix-path)
           meta-data (get-metadata media-entry)]
-      (swap! state/db (fn [db uuid media-entry]
-                        (assoc-in db [:download :items (str id)] media-entry))
-             id (assoc (roa/data media-entry)
-                       :state "downloading"
-                       :errors {}
-                       :type "MediaEntry"
-                       :path entry-dir-path
-                       :download_started-at (str (time/now))))
-      (io/make-parents entry-dir-path)
-      (write-meta-data entry-dir-path meta-data id)
-      (download-media-files entry-dir-path media-entry)
-      (set-item-to-finished id))))
+      (if (-> @state/db :download :items (get id))
+        (symlink)
+        (do (swap! state/db (fn [db uuid media-entry]
+                              (assoc-in db [:download :items (str id)] media-entry))
+                   id (assoc (roa/data media-entry)
+                             :state "downloading"
+                             :errors {}
+                             :type "MediaEntry"
+                             :path entry-dir-path
+                             :download_started-at (str (time/now))))
+            (io/make-parents entry-dir-path)
+            (write-meta-data entry-dir-path meta-data id)
+            (download-media-files entry-dir-path media-entry)
+            (set-item-to-finished id))))))
 
 
 ;### check credentials ########################################################
@@ -128,32 +133,34 @@
         target-dir-path recursive? api-entry-point api-http-opts))))
 
 (defn download-set [id dl-path recursive? api-entry-point api-http-opts]
-  (swap! state/db (fn [db id] (deep-merge db {:download {:items {id {}}}})) id)
-  (catcher/with-logging {}
-    (let [collection (-> (roa/get-root api-entry-point
-                                       :default-conn-opts api-http-opts)
-                         (roa/relation :collection )
-                         (roa/get {:id id}))
-          path-prefix (path-prefix collection)
-          target-dir-path (str dl-path File/separator path-prefix)
-          meta-data (get-metadata collection)]
-      (swap! state/db (fn [db uuid collection]
-                        (assoc-in db [:download :items (str id)] collection))
-             id (assoc (roa/data collection)
-                       :state "downloading"
-                       :errors {}
-                       :type "Collection"
-                       :path target-dir-path
-                       :download_started-at (str (time/now))))
-      (io/make-parents target-dir-path)
-      (write-meta-data target-dir-path meta-data id)
-      (download-media-entries-for-set
-        id target-dir-path api-entry-point api-http-opts)
-      (when recursive?
-        (download-collections-for-collection
-          collection target-dir-path recursive?
-          api-entry-point api-http-opts))
-      (set-item-to-finished id))))
+  (if (-> @state/db :download :items (get id))
+    (symlink)
+    (catcher/with-logging {}
+      (swap! state/db (fn [db id] (deep-merge db {:download {:items {id {}}}})) id)
+      (let [collection (-> (roa/get-root api-entry-point
+                                         :default-conn-opts api-http-opts)
+                           (roa/relation :collection )
+                           (roa/get {:id id}))
+            path-prefix (path-prefix collection)
+            target-dir-path (str dl-path File/separator path-prefix)
+            meta-data (get-metadata collection)]
+        (swap! state/db (fn [db uuid collection]
+                          (assoc-in db [:download :items (str id)] collection))
+               id (assoc (roa/data collection)
+                         :state "downloading"
+                         :errors {}
+                         :type "Collection"
+                         :path target-dir-path
+                         :download_started-at (str (time/now))))
+        (io/make-parents target-dir-path)
+        (write-meta-data target-dir-path meta-data id)
+        (download-media-entries-for-set
+          id target-dir-path api-entry-point api-http-opts)
+        (when recursive?
+          (download-collections-for-collection
+            collection target-dir-path recursive?
+            api-entry-point api-http-opts))
+        (set-item-to-finished id)))))
 
 
 ;### Debug ####################################################################
