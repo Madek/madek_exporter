@@ -104,8 +104,10 @@
                          {:method :post
                           :url (str "/open")
                           :json-params {:uri path}})}
-        [:i.fa.fa-file] " " path]]
-      )]])
+        [:i.fa.fa-file] " " path]])
+    (for [[s t] (-> item :links)]
+      [:li.list-group-item
+       [:i.fa.fa-link] " " s])]])
 
 (defn render-item [item]
   (let [id (:item-id item)
@@ -215,7 +217,6 @@
    (:type @download-entity)
    " \"" [:em (:title @download-entity)] "\" "])
 
-
 (defn toggle-recursive-download-parameter [_]
   (http-request
     {:method :patch
@@ -233,14 +234,24 @@
                           :disabled true
                           :value (:uuid @download-entity)}]]
    (when (= "Collection" (:type @download-entity))
-     [:div.checkbox
-      [:label
-       [:input#recursive
-        {:type "checkbox"
-         :checked (-> @download-parameters :recursive not not)
-         :on-click toggle-recursive-download-parameter
-         }]
-       "Recursive"]])
+     (let [recursive?  (-> @download-parameters :recursive not not)]
+       [:div.checkbox
+        [:label
+         [:input#recursive
+          {:type "checkbox"
+           :checked recursive?
+           :on-click toggle-recursive-download-parameter
+           }]
+         "Recursive"]
+        (when recursive?
+          [:div.alert.alert-info
+           "Heads up: Every unique MediaEntry will be downloaded only once.
+           Additional appearances of an already downloaded MediaEntry will
+           be \"symlinked\". The same holds true for Sets. If a Set is
+           a descendant of itself it will be downloaded only once and
+           ever additional appearance will be \"symlinked\" to the location of
+           the first download."])]))
+
    [:div.form-group
     [:label {:for "target-dir"} "Target Directory"]
     [:input.form-control {:type "text"

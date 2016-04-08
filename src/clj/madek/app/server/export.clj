@@ -31,10 +31,18 @@
 
 (defn nio-path [s] (Paths/get s (into-array [""])))
 
-(defn symlink [source target]
+(defn symlink [id source target]
   (snatch
-    {:level :debug
+    {:level :warn
      :throwable java.nio.file.FileAlreadyExistsException}
+    (swap! state/db
+           (fn [db id source target]
+             (deep-merge db {:download
+                             {:items
+                              {id
+                               {:links
+                                {source target}}}}}))
+           id source target)
     (Files/createSymbolicLink
       (nio-path source)
       (nio-path target)
@@ -85,7 +93,7 @@
           meta-data (get-metadata media-entry)]
       (if (-> @state/db :download :items (get id))
         (let [target  (-> @state/db :download :items (get id) :path)]
-          (symlink entry-dir-path target))
+          (symlink id entry-dir-path target))
         (do (swap! state/db (fn [db uuid media-entry]
                               (assoc-in db [:download :items (str id)] media-entry))
                    id (assoc (roa/data media-entry)
@@ -155,7 +163,7 @@
         meta-data (get-metadata collection)]
     (if (-> @state/db :download :items (get id))
       (let [target  (-> @state/db :download :items (get id) :path)]
-        (symlink target-dir-path target))
+        (symlink id target-dir-path target))
       (catcher/with-logging {}
         (swap! state/db (fn [db id] (deep-merge db {:download {:items {id {}}}})) id)
         (swap! state/db (fn [db uuid collection]
@@ -181,6 +189,6 @@
 ;(logging-config/set-logger! :level :debug)
 ;(logging-config/set-logger! :level :info)
 ;(debug/debug-ns 'ring.middleware.resource)
-;(debug/debug-ns *ns*)
+(debug/debug-ns *ns*)
 ;(debug/debug-ns 'json-roa.client.core)
 ;(debug/debug-ns 'uritemplate-clj.core)
