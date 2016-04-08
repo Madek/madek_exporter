@@ -74,7 +74,7 @@
     {:return-fn (fn [e] {:status 500 :body (thrown/stringify e)})}
     (let [url (-> request :body :entity-url)
           entity-data (get-entity-data-from-webapp url)]
-      (if-not (= "Collection" (:type entity-data))
+      (if-not (get #{"MediaEntry" "Collection"} (:type entity-data))
         {:status 422 :body (str "Only sets (aka. Collections) can be downloaded, "
                                 "this entity es of type " (:type entity-data))}
         (do (swap! state/db
@@ -87,6 +87,7 @@
                      (select-keys entity-data [:title :uuid :type])
                      :url url))
             {:status 204})))))
+
 
 (defn download-entity-delete [_]
   (swap! state/db (fn [db]
@@ -128,7 +129,10 @@
                                                    :errors {:dowload-error (str e)}}}))
                                    e))
                :throwable Throwable}
-              (export/download-set id target-dir recursive? entry-point http-options)
+              (case (-> @state/db :download :entity :type)
+                "Collection"  (export/download-set id target-dir recursive? entry-point http-options)
+                "MediaEntry" (export/download-media-entry id target-dir entry-point http-options)
+                )
               (swap! state/db (fn [db] (assoc-in db [:download :state] :finished))))
             )))
 

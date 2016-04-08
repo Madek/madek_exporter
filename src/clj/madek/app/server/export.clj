@@ -22,9 +22,7 @@
 
     (:import
     [java.io File]
-    [java.nio.file Files Paths]
-    )
-  )
+    [java.nio.file Files Paths]))
 
 
 ;### Path Helper ##############################################################
@@ -33,7 +31,7 @@
 
 (defn symlink [id source target]
   (snatch
-    {:level :warn
+    {:level :debug
      :throwable java.nio.file.FileAlreadyExistsException}
     (swap! state/db
            (fn [db id source target]
@@ -84,28 +82,36 @@
                            :download_finished-at (str (time/now))}}}}))
          id))
 
-(defn download-media-entry [dir-path media-entry-rel]
-  (catcher/with-logging {}
-    (let [media-entry (roa/get media-entry-rel {})
-          id (-> media-entry roa/data :id)
-          entry-prefix-path (path-prefix media-entry)
-          entry-dir-path (str dir-path File/separator entry-prefix-path)
-          meta-data (get-metadata media-entry)]
-      (if (-> @state/db :download :items (get id))
-        (let [target  (-> @state/db :download :items (get id) :path)]
-          (symlink id entry-dir-path target))
-        (do (swap! state/db (fn [db uuid media-entry]
-                              (assoc-in db [:download :items (str id)] media-entry))
-                   id (assoc (roa/data media-entry)
-                             :state "downloading"
-                             :errors {}
-                             :type "MediaEntry"
-                             :path entry-dir-path
-                             :download_started-at (str (time/now))))
-            (io/make-parents entry-dir-path)
-            (write-meta-data entry-dir-path meta-data id)
-            (download-media-files entry-dir-path media-entry)
-            (set-item-to-finished id))))))
+(defn download-media-entry
+  ([id target-dir api-entry-point api-http-opts]
+   (catcher/with-logging {}
+     (let [media-entry (I> identity-with-logging
+                           (roa/get-root api-entry-point
+                                         :default-conn-opts api-http-opts)
+                           (roa/relation :media-entry)
+                           (roa/get {:id id}))]
+       (download-media-entry target-dir media-entry))))
+  ([dir-path media-entry]
+   (catcher/with-logging {}
+     (let [id (-> media-entry roa/data :id)
+           entry-prefix-path (path-prefix media-entry)
+           entry-dir-path (str dir-path File/separator entry-prefix-path)
+           meta-data (get-metadata media-entry)]
+       (if (-> @state/db :download :items (get id))
+         (let [target  (-> @state/db :download :items (get id) :path)]
+           (symlink id entry-dir-path target))
+         (do (swap! state/db (fn [db uuid media-entry]
+                               (assoc-in db [:download :items (str id)] media-entry))
+                    id (assoc (roa/data media-entry)
+                              :state "downloading"
+                              :errors {}
+                              :type "MediaEntry"
+                              :path entry-dir-path
+                              :download_started-at (str (time/now))))
+             (io/make-parents entry-dir-path)
+             (write-meta-data entry-dir-path meta-data id)
+             (download-media-files entry-dir-path media-entry)
+             (set-item-to-finished id)))))))
 
 
 ;### check credentials ########################################################
@@ -129,12 +135,12 @@
                              {:me_get_full_size "true"}
                              {:public_get_full_size "true"}))]
     (doseq [me-rel (I> identity-with-logging
-                   (roa/get-root api-entry-point
-                                 :default-conn-opts api-http-opts)
-                   (roa/relation :media-entries)
-                   (roa/get me-get-opts)
-                   roa/coll-seq)]
-      (download-media-entry target-dir-path me-rel))))
+                       (roa/get-root api-entry-point
+                                     :default-conn-opts api-http-opts)
+                       (roa/relation :media-entries)
+                       (roa/get me-get-opts)
+                       roa/coll-seq)]
+      (download-media-entry target-dir-path (roa/get me-rel {})))))
 
 (defn download-collections-for-collection [collection target-dir-path recursive?
                                            api-entry-point api-http-opts]
@@ -189,6 +195,6 @@
 ;(logging-config/set-logger! :level :debug)
 ;(logging-config/set-logger! :level :info)
 ;(debug/debug-ns 'ring.middleware.resource)
-(debug/debug-ns *ns*)
+;(debug/debug-ns *ns*)
 ;(debug/debug-ns 'json-roa.client.core)
 ;(debug/debug-ns 'uritemplate-clj.core)
