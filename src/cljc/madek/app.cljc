@@ -1,3 +1,3 @@
 (ns madek.app)
 
-(def VERSION "1.1.0")
+(def VERSION "1.2.0")
